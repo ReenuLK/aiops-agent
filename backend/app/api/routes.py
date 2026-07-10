@@ -53,7 +53,7 @@ def get_exit_info(container_id: str):
     GET /containers/{container_id}/exit-info
     """
     result = docker_agent.get_exit_info(container_id)
-    if "error" in result:
+    if result.get("error"):
         raise HTTPException(status_code=404, detail=result["error"])
     return result
 
