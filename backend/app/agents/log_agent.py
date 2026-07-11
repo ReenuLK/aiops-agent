@@ -31,16 +31,18 @@ The JSON must have exactly these fields:
   "root_cause": "one clear sentence describing what actually went wrong",
   "suggested_fix": "one specific, actionable command or step to fix it",
   "confidence": "a number from 0 to 100 representing how sure you are",
-  "risk_level": "low, medium, or high - how risky is the suggested fix to auto-execute without human approval. restarting a container is low risk. rebuilding an image or changing configuration is medium or high risk."
+  "risk_level": "low, medium, or high - how risky is the EXACT suggested_fix above to auto-execute without human approval"
 }
 
 Rules:
 - Base your diagnosis only on the evidence given. Do not invent details not present in the logs.
+- If the logs contain a specific error message or line number, quote or reference it directly in root_cause instead of describing the error category generically.
 - If OOMKilled is true, that is a very strong signal the cause is memory exhaustion, even if logs don't explicitly say so.
+- Only use confidence above 90 when the logs contain explicit, unambiguous evidence (e.g. an exact error message or OOMKilled=true). Use 50-80 when you are inferring from partial evidence, and below 50 when genuinely uncertain.
+- risk_level must be based on the exact action described in suggested_fix, not on the general type of incident. A plain restart with no other changes is low risk. Any fix that changes memory/CPU limits, edits a config file, rebuilds an image, or modifies environment variables is medium or high risk, even if the incident itself (e.g. OOM) is common. Re-read your own suggested_fix before choosing risk_level.
 - Keep root_cause and suggested_fix each under 2 sentences.
 - Output ONLY the JSON object. Nothing before it, nothing after it.
 """
-
 
 def _build_user_prompt(logs: str, exit_info: dict) -> str:
     return f"""Container exit info:

@@ -2,11 +2,23 @@
 # Builds and runs the leaky app with a low memory limit so Docker OOM-kills it.
 # Expected result: container exits with code 137, OOMKilled=true.
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-docker rm -f demo-oom 2>/dev/null
+if command -v wslpath > /dev/null 2>&1; then
+  DOCKER_CONTEXT="$(wslpath -w "$SCRIPT_DIR" 2>/dev/null || printf '%s' "$SCRIPT_DIR")"
+elif command -v cygpath > /dev/null 2>&1; then
+  DOCKER_CONTEXT="$(cygpath -w "$SCRIPT_DIR")"
+else
+  DOCKER_CONTEXT="$SCRIPT_DIR"
+fi
 
-MSYS_NO_PATHCONV=1 docker build -t demo-leaky-app "$SCRIPT_DIR"
+export MSYS_NO_PATHCONV=1
+
+docker rm -f demo-oom 2>/dev/null || true
+
+docker build -t demo-leaky-app "$DOCKER_CONTEXT"
 
 docker run -d \
   --name demo-oom \
