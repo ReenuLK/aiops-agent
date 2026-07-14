@@ -97,7 +97,7 @@ def diagnose(logs: str, exit_info: dict) -> dict:
     }
 
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=60)
+        response = requests.post(OLLAMA_URL, json=payload, timeout=120)
         response.raise_for_status()
     except requests.RequestException as e:
         return {
