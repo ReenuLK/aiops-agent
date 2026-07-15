@@ -1,6 +1,15 @@
+"""
+routes.py
+
+Defines HTTP endpoints that expose DockerAgent's functionality to the
+frontend (and later, to the Orchestrator/chat flow). This file only wires
+requests to DockerAgent methods and shapes responses — no Docker SDK calls
+or business logic should live here directly.
+"""
 
 from fastapi import APIRouter, HTTPException, Query
 from ..agents.docker_agent import DockerAgent
+from ..cache import get_cached_stats, set_cached_stats
 
 router = APIRouter(prefix="/containers", tags=["containers"])
 
@@ -25,13 +34,20 @@ def get_containers(all: bool = Query(default=True, description="Include stopped 
 @router.get("/{container_id}/stats")
 def get_stats(container_id: str):
     """
-    CPU/RAM snapshot for a single container.
+    CPU/RAM snapshot for a single container. Cached in Redis for a few
+    seconds to avoid hammering the Docker API on frequent dashboard polling.
     GET /containers/{container_id}/stats
     """
+    cached = get_cached_stats(container_id)
+    if cached is not None:
+        return {**cached, "cached": True}
+
     result = docker_agent.get_container_stats(container_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
-    return result
+
+    set_cached_stats(container_id, result)
+    return {**result, "cached": False}
 
 
 @router.get("/{container_id}/logs")
@@ -53,7 +69,7 @@ def get_exit_info(container_id: str):
     GET /containers/{container_id}/exit-info
     """
     result = docker_agent.get_exit_info(container_id)
-    if result.get("error"):
+    if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result
 
