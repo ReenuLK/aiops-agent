@@ -1,6 +1,8 @@
 import ContainerList from "./components/ContainerList";
 import ChatPanel from "./components/ChatPanel";
 import ScenarioPanel from "./components/ScenarioPanel";
+import HistoryPanel from "./components/HistoryPanel";
+import ResourceChart from "./components/ResourceChart";
 
 export default function App() {
   return (
@@ -18,15 +20,25 @@ export default function App() {
           <ContainerList />
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <div>
+        <section>
+          <ResourceChart />
+        </section>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <section>
             <h2 className="text-lg font-medium mb-3">Chat</h2>
             <ChatPanel />
-          </div>
-          <div>
-            <h2 className="text-lg font-medium mb-3">Scenarios</h2>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-medium mb-3">Demo Controls</h2>
             <ScenarioPanel />
-          </div>
+          </section>
+        </div>
+
+        <section>
+          <h2 className="text-lg font-medium mb-3">History</h2>
+          <HistoryPanel />
         </section>
       </main>
     </div>
