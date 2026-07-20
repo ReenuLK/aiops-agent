@@ -2,10 +2,14 @@
 diagnose_routes.py
 
 Exposes the Log Agent's diagnosis capability as an HTTP endpoint. This
-endpoint ties together DockerAgent (pull logs + exit info) and log_agent
-(reason about them) — it's the first place in the codebase where
-"perceive" and "reason" are wired together, ahead of the full Orchestrator
-in Day 6.
+endpoint ties together DockerAgent (pull logs + exit info + daemon error)
+and log_agent (reason about them).
+
+The daemon_error field (State["Error"]) is the key signal for failures
+that occur before a container process starts — e.g. port conflicts:
+  "Bind for 0.0.0.0:8080 failed: port is already allocated"
+Logs are empty in these cases, so without daemon_error the LLM has no
+evidence and can only say "insufficient data".
 """
 
 from fastapi import APIRouter, HTTPException
@@ -39,7 +43,12 @@ def diagnose_container(container_id: str, tail: int = 100):
     if "not_found" in exit_info:
         raise HTTPException(status_code=404, detail=exit_info["not_found"])
 
-    result = diagnose(logs, exit_info)
+    # daemon_error captures failures that happen before the container process
+    # starts (e.g. port-bind conflicts). Logs are empty in these cases, making
+    # this field the only concrete evidence available to the LLM.
+    daemon_error = docker_agent.get_daemon_error(container_id)
+
+    result = diagnose(logs, exit_info, daemon_error=daemon_error)
 
     if not result.get("success"):
         # LLM/parsing failure is a server-side issue, not a "container not
@@ -53,6 +62,9 @@ def diagnose_container(container_id: str, tail: int = 100):
     return {
         "container_id": container_id,
         "exit_info": exit_info,
+        # Expose daemon_error in the response so callers (dashboard, tests)
+        # can see the raw signal even independently of the LLM diagnosis.
+        "daemon_error": daemon_error or None,
         "diagnosis": {
             "root_cause": result["root_cause"],
             "suggested_fix": result["suggested_fix"],

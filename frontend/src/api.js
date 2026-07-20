@@ -3,7 +3,7 @@
  *
  * Thin wrapper around fetch() for talking to the FastAPI backend.
  * Centralizing the base URL here means switching from localhost to a
- * deployed backend URL later only requires changing one line.
+ * deployed backend URL later (Day 11) only requires changing one line.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -16,7 +16,14 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.detail || `Request failed: ${response.status}`);
+    const detail = errorBody.detail;
+    const message =
+      typeof detail === "string"
+        ? detail
+        : detail === undefined
+        ? `Request failed: ${response.status}`
+        : JSON.stringify(detail, null, 2);
+    throw new Error(message);
   }
 
   return response.json();
@@ -51,4 +58,12 @@ export function sendChatMessage(message) {
 
 export function getHistory(limit = 50) {
   return request(`/history?limit=${limit}`);
+}
+
+export function triggerScenario(scenarioName) {
+  return request(`/scenarios/${scenarioName}/trigger`, { method: "POST" });
+}
+
+export function resetScenarios() {
+  return request("/scenarios/reset", { method: "POST" });
 }

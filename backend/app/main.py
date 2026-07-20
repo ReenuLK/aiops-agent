@@ -13,6 +13,7 @@ from .api.routes import router
 from .api.diagonise_routes import router as diagnose_router
 from .api.chat_routes import router as chat_router
 from .api.history_routes import router as history_router
+from .api.scenarios_routes import router as scenario_router
 from .db.sessions import Base, engine
 from .db import models
 
@@ -38,7 +39,7 @@ app.include_router(router)
 app.include_router(diagnose_router)
 app.include_router(chat_router)
 app.include_router(history_router)
-
+app.include_router(scenario_router)
 
 @app.get("/")
 def root():

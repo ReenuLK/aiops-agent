@@ -23,35 +23,65 @@ VALID_RISK_LEVELS = {"low", "medium", "high"}
 
 SYSTEM_PROMPT = """You are an expert DevOps engineer diagnosing a failed Docker container.
 You will be given the container's recent logs and metadata (exit code, OOM status).
-
+ 
 Respond with ONLY a JSON object, no other text, no markdown formatting, no code fences.
 The JSON must have exactly these fields:
-
+ 
 {
   "root_cause": "one clear sentence describing what actually went wrong",
   "suggested_fix": "one specific, actionable command or step to fix it",
   "confidence": "a number from 0 to 100 representing how sure you are",
   "risk_level": "low, medium, or high - how risky is the EXACT suggested_fix above to auto-execute without human approval"
 }
-
+ 
 Rules:
 - Base your diagnosis only on the evidence given. Do not invent details not present in the logs.
 - If the logs contain a specific error message or line number, quote or reference it directly in root_cause instead of describing the error category generically.
 - If OOMKilled is true, that is a very strong signal the cause is memory exhaustion, even if logs don't explicitly say so.
-- Only use confidence above 90 when the logs contain explicit, unambiguous evidence (e.g. an exact error message or OOMKilled=true). Use 50-80 when you are inferring from partial evidence, and below 50 when genuinely uncertain.
-- risk_level must be based on the exact action described in suggested_fix, not on the general type of incident. A plain restart with no other changes is low risk. Any fix that changes memory/CPU limits, edits a config file, rebuilds an image, or modifies environment variables is medium or high risk, even if the incident itself (e.g. OOM) is common. Re-read your own suggested_fix before choosing risk_level.
+- If daemon_error is non-empty, that is a very strong signal of a daemon-level failure (e.g. port conflict, volume mount error) that occurred before the container process started. Treat it with the same high confidence as OOMKilled=true. Quote the daemon_error string directly in root_cause.
+- Only use confidence above 90 when the logs contain explicit, unambiguous evidence (e.g. an exact error message or OOMKilled=true or a non-empty daemon_error). Use 50-80 when you are inferring from partial evidence, and below 50 when genuinely uncertain.
+- risk_level must be based on the exact action described in suggested_fix, not on the general type of incident. Use these fixed categories, in this priority order:
+  - "low": the fix is only a restart, with no other change (e.g. "restart the container").
+  - "medium": the fix changes one specific thing before restarting (e.g. set one environment variable, edit one config line, adjust one resource limit).
+  - "high": the fix requires rebuilding an image, changing multiple settings, or the exact change needed is unclear/requires investigation.
+  Re-read your own suggested_fix and match it to exactly one category above - do not treat "edit a config file" as automatically high risk if it's a single, well-defined change; that is medium.
+- Do NOT invent a container name. Never write a placeholder name like "my_container" or "<container_name>" in suggested_fix - describe the action generically instead (e.g. "restart the container" not "docker restart my_container").
+- If the logs are empty, contain no error messages, and exit_info gives no clear signal (oom_killed is false, exit_code is 0 or missing), do NOT invent a plausible-sounding cause. Instead respond with root_cause "Insufficient log data to determine root cause - the container may have failed before producing logs (e.g. a port conflict or resource allocation failure at the Docker daemon level)", suggested_fix "Check `docker ps -a` and the host's Docker daemon output for errors that occurred before this container started", confidence below 20, and risk_level "low".
+ 
+Example of correct output for a simple crash with no config issue:
+{
+  "root_cause": "The process exited unexpectedly with exit code 1 and no clear error in the logs.",
+  "suggested_fix": "Restart the container.",
+  "confidence": 60,
+  "risk_level": "low"
+}
+ 
+Example of correct output for an OOM kill:
+{
+  "root_cause": "The container was killed by the OOM killer (OOMKilled=true, exit code 137) due to exceeding its memory limit.",
+  "suggested_fix": "Increase the container's memory limit before restarting.",
+  "confidence": 95,
+  "risk_level": "medium"
+}
+ 
 - Keep root_cause and suggested_fix each under 2 sentences.
 - Output ONLY the JSON object. Nothing before it, nothing after it.
 """
 
-def _build_user_prompt(logs: str, exit_info: dict) -> str:
+def _build_user_prompt(logs: str, exit_info: dict, daemon_error: str = "") -> str:
+    daemon_error_section = (
+        f"- daemon_error: {daemon_error}"
+        if daemon_error
+        else "- daemon_error: (none — container process started normally or error not recorded at daemon level)"
+    )
     return f"""Container exit info:
 - status: {exit_info.get('status')}
 - exit_code: {exit_info.get('exit_code')}
 - oom_killed: {exit_info.get('oom_killed')}
+{daemon_error_section}
 
 Recent logs:
-{logs.strip()[-3000:]}
+{logs.strip()[-3000:] or '(empty — container process never produced output)'}
 
 Diagnose the root cause and suggest a fix, following the JSON format exactly.
 """
@@ -78,13 +108,17 @@ def _extract_json(raw_text: str) -> dict:
     return json.loads(match.group(0))
 
 
-def diagnose(logs: str, exit_info: dict) -> dict:
+def diagnose(logs: str, exit_info: dict, daemon_error: str = "") -> dict:
     """
-    Sends logs + exit info to the local LLM and returns a structured
-    diagnosis. Returns a dict with a `success` flag so callers can handle
-    failures (model down, bad output) without crashing.
+    Sends logs + exit info + daemon_error to the local LLM and returns a
+    structured diagnosis. Returns a dict with a `success` flag so callers
+    can handle failures (model down, bad output) without crashing.
+
+    daemon_error is the Docker daemon-level error from State["Error"] —
+    critical for containers that failed before the process started (e.g.
+    port conflicts), where logs are empty and this is the only evidence.
     """
-    prompt = _build_user_prompt(logs, exit_info)
+    prompt = _build_user_prompt(logs, exit_info, daemon_error=daemon_error)
 
     payload = {
         "model": MODEL_NAME,
@@ -92,7 +126,7 @@ def diagnose(logs: str, exit_info: dict) -> dict:
         "prompt": prompt,
         "stream": False,
         "options": {
-            "temperature": 0.2  # low temperature: we want consistent, factual diagnosis, not creative variation
+            "temperature": 0.0  # low temperature: we want consistent, factual diagnosis, not creative variation
         },
     }
 

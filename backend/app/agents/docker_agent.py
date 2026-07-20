@@ -149,6 +149,25 @@ class DockerAgent:
             "finished_at": state.get("FinishedAt"),
         }
 
+    def get_daemon_error(self, container_id: str) -> str:
+        """
+        Returns the Docker daemon-level error string from State["Error"].
+
+        This is the key signal for failures that happen BEFORE the container
+        process ever runs — most notably port-bind failures like:
+          "Bind for 0.0.0.0:8080 failed: port is already allocated"
+
+        Container logs are empty in these cases because no process started,
+        so this field is the only reliable evidence of what went wrong.
+        Returns an empty string if the container is not found or has no error.
+        """
+        try:
+            container = self._ensure_client().containers.get(container_id)
+            container.reload()
+            return container.attrs.get("State", {}).get("Error", "") or ""
+        except (NotFound, RuntimeError):
+            return ""
+
     # ---------- WRITE / ACT ----------
 
     def start(self, container_id: str) -> dict:
