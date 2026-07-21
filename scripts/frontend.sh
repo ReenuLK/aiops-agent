@@ -5,7 +5,7 @@ set -e
 cd ~/aiops-agent/frontend
 
 cat > .env <<EOF
-VITE_API_BASE_URL=http://14.139.187.130:8000
+VITE_API_BASE_URL=http://40.81.18.159:8000
 EOF
 
 npm install
