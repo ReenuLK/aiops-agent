@@ -2,17 +2,21 @@
 
 set -e
 
-cd ~/aiops-agent/backend
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$REPO_ROOT/backend"
 
-python3 -m venv venv
+cd "$BACKEND_DIR"
 
-source venv/bin/activate
+python3 -m venv "$BACKEND_DIR/venv"
+
+source "$BACKEND_DIR/venv/bin/activate"
 
 pip install --upgrade pip
 
-pip install -r requirements.txt
+pip install -r "$REPO_ROOT/requirements.txt"
 
-cat > .env <<EOF
+cat > "$BACKEND_DIR/.env" <<EOF
 DATABASE_URL=postgresql://aiops:aiops_dev_password@localhost:5432/aiops_db
 REDIS_URL=redis://localhost:6379/0
 EOF
